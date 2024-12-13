@@ -25,6 +25,7 @@ members = [
     "contract_data",
     "upload_contract",
     "create_contract",
+    "error_budget_test",
     "invoke_contract",
     "linear_memory",
     "loadgen",

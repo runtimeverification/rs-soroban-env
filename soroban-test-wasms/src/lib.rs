@@ -60,6 +60,8 @@ pub const LOADGEN: &[u8] = include_bytes!("../wasm-workspace/opt/20/loadgen.wasm
 pub const VEC: &[u8] = include_bytes!("../wasm-workspace/opt/20/example_vec.wasm").as_slice();
 pub const INVOKE_CONTRACT: &[u8] =
     include_bytes!("../wasm-workspace/opt/20/example_invoke_contract.wasm").as_slice();
+pub const ERROR_BUDGET_TEST: &[u8] =
+    include_bytes!("../wasm-workspace/opt/20/error_budget_test.wasm").as_slice();
 pub const HOSTILE: &[u8] =
     include_bytes!("../wasm-workspace/opt/20/example_hostile.wasm").as_slice();
 pub const FIB: &[u8] = include_bytes!("../wasm-workspace/opt/20/example_fib.wasm").as_slice();
