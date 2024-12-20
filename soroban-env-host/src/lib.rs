@@ -64,5 +64,12 @@ pub mod testutils;
 #[cfg(any(test, feature = "testutils"))]
 #[doc(hidden)]
 pub mod e2e_testutils;
+
+#[cfg(any(test, feature = "testutils"))]
+#[doc(hidden)]
+pub mod valid_scval;
+
+pub use host::frame::Frame;
+
 #[cfg(test)]
 mod test;

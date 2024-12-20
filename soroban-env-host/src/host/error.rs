@@ -355,7 +355,7 @@ impl Host {
     /// will wind up writing `host.map_err(...)?` a bunch in code that you used
     /// to be able to get away with just writing `...?`, there's no way around
     /// this if we want to record the diagnostic information.
-    pub(crate) fn map_err<T, E>(&self, res: Result<T, E>) -> Result<T, HostError>
+    pub fn map_err<T, E>(&self, res: Result<T, E>) -> Result<T, HostError>
     where
         Error: From<E>,
         E: Debug,

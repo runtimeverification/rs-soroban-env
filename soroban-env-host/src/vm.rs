@@ -528,7 +528,7 @@ impl Vm {
     /// Utility function that synthesizes a `VmCaller<Host>` configured to point
     /// to this VM's `Store` and `Instance`, and calls the provided function
     /// back with it. Mainly used for testing.
-    pub(crate) fn with_vmcaller<F, T>(&self, f: F) -> Result<T, HostError>
+    pub fn with_vmcaller<F, T>(&self, f: F) -> Result<T, HostError>
     where
         F: FnOnce(&mut VmCaller<Host>) -> Result<T, HostError>,
     {

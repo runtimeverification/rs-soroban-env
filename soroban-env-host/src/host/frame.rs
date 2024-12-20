@@ -133,7 +133,8 @@ impl CallParams {
 /// the host state when it is pushed, and the [`FrameGuard`] will either
 /// commit or roll back that state when it pops the stack.
 #[derive(Clone, Hash)]
-pub(crate) enum Frame {
+#[allow(private_interfaces)]
+pub enum Frame {
     ContractVM {
         vm: Rc<Vm>,
         fn_name: Symbol,
@@ -413,7 +414,7 @@ impl Host {
     /// Pushes a [`Frame`], runs a closure, and then pops the frame, rolling back
     /// if the closure returned an error. Returns the result that the closure
     /// returned (or any error caused during the frame push/pop).
-    pub(crate) fn with_frame<F>(&self, frame: Frame, f: F) -> Result<Val, HostError>
+    pub fn with_frame<F>(&self, frame: Frame, f: F) -> Result<Val, HostError>
     where
         F: FnOnce() -> Result<Val, HostError>,
     {
