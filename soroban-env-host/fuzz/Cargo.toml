@@ -40,3 +40,45 @@ name = "wasmi"
 path = "fuzz_targets/wasmi.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "scval_cmp"
+path = "fuzz_targets/scval_cmp.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "scval_gen"
+path = "fuzz_targets/scval_gen.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_linear_mem"
+path = "fuzz_targets/fuzz_linear_mem.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_linear_mem_budget"
+path = "fuzz_targets/fuzz_linear_mem_budget.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "scval_bytes_roundtrip"
+path = "fuzz_targets/scval_bytes_roundtrip.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "read_corrupted"
+path = "fuzz_targets/read_corrupted.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "read_corrupted2"
+path = "fuzz_targets/read_corrupted2.rs"
+test = false
+doc = false
