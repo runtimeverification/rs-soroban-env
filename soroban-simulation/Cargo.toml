@@ -21,7 +21,7 @@ anyhow = { version = "1.0.75", features = [] }
 thiserror = "1.0.40"
 soroban-env-host = { workspace = true,  features = ["recording_mode", "unstable-next-api"]}
 static_assertions = "1.1.0"
-rand = "0.8.5"
+rand = "0.9.3"
 
 [dev-dependencies]
 soroban-env-host = { workspace = true,  features = ["recording_mode", "testutils", "unstable-next-api"]}
