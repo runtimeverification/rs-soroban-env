@@ -26,7 +26,7 @@ hmac = "0.12.1"
 # NB: We'll need to pin this again after switching the Core to the new env version.
 ed25519-dalek = {version = ">=2.0.0", features = ["rand_core"] }
 # NB: this must match the same rand version used by ed25519-dalek above
-rand = "0.8.5"
+rand = "0.8.6"
 # NB: this must match the same rand_chacha version used by ed25519-dalek above
 rand_chacha = "0.3.1"
 num-traits = "0.2.17"
