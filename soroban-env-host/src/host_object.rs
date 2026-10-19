@@ -269,6 +269,7 @@ impl HostObjectType for MuxedScAddress {
     fn inject(self, host: &Host) -> Result<HostObject, HostError> {
         match &self.0 {
             xdr::ScAddress::MuxedAccount(_) => Ok(HostObject::MuxedAddress(self)),
+            xdr::ScAddress::MuxedContract(_) => Ok(HostObject::MuxedAddress(self)),
             _ => Err(host.err(
                 ScErrorType::Object,
                 ScErrorCode::InvalidInput,
@@ -292,7 +293,7 @@ impl HostObjectType for MuxedScAddress {
 
 impl MemHostObjectType for xdr::ScSymbol {
     fn try_from_bytes(host: &Host, bytes: Vec<u8>) -> Result<Self, HostError> {
-        if bytes.len() as u64 > SCSYMBOL_LIMIT {
+        if bytes.len() > SCSYMBOL_LIMIT as usize {
             return Err(host.err(
                 ScErrorType::Value,
                 ScErrorCode::InvalidInput,
