@@ -109,6 +109,9 @@ allow_apis = [
 
 [pkg.rand]
 allow_unsafe = true
+allow_apis = [
+    "rand",
+]
 
 [pkg.backtrace]
 allow_apis = [
@@ -189,6 +192,16 @@ from.test.allow_apis = [
 allow_unsafe = true
 
 [pkg.keccak]
+allow_unsafe = true
+
+# ml-dsa (CAP-0087) dependencies.
+[pkg.cmov]
+allow_unsafe = true
+
+[pkg.hybrid-array]
+allow_unsafe = true
+
+[pkg.sponge-cursor]
 allow_unsafe = true
 
 [pkg.hashbrown]
@@ -532,6 +545,26 @@ build.allow_apis = [
 allow_unsafe = true
 
 [pkg.data-encoding]
+allow_unsafe = true
+
+[pkg.heapless]
+build.allow_apis = [
+    "env",
+    "fs",
+    "process",
+]
+allow_unsafe = true
+
+[pkg.stellar-strkey]
+allow_unsafe = true
+
+[pkg.byteorder]
+allow_unsafe = true
+
+[pkg.hash32]
+allow_unsafe = true
+
+[pkg.stable_deref_trait]
 allow_unsafe = true
 
 [pkg.ark-ff]

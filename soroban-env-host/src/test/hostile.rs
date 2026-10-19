@@ -545,19 +545,19 @@ fn excessive_logging() -> Result<(), HostError> {
         let actual = format!("{}", host.as_budget());
         expect![[r#"
             =================================================================
-            Cpu limit: 2000000; used: 214209
-            Mem limit: 500000; used: 166948
+            Cpu limit: 2000000; used: 211132
+            Mem limit: 500000; used: 168057
             =================================================================
             CostType                           cpu_insns      mem_bytes      
             WasmInsnExec                       300            0              
-            MemAlloc                           16649          67528          
-            MemCpy                             2343           0              
-            MemCmp                             472            0              
+            MemAlloc                           15758          67312          
+            MemCpy                             1939           0              
+            MemCmp                             284            0              
             DispatchHostFunction               295            0              
             VisitObject                        240            0              
             ValSer                             0              0              
             ValDeser                           0              0              
-            ComputeSha256Hash                  3636           0              
+            ComputeSha256Hash                  0              0              
             ComputeEd25519PubKey               0              0              
             VerifyEd25519Sig                   0              0              
             VmInstantiation                    0              0              
@@ -577,21 +577,21 @@ fn excessive_logging() -> Result<(), HostError> {
             ParseWasmGlobals                   1377           104            
             ParseWasmTableEntries              29989          6285           
             ParseWasmTypes                     8292           505            
-            ParseWasmDataSegments              0              0              
+            ParseWasmDataSegments              1854           227            
             ParseWasmElemSegments              0              0              
             ParseWasmImports                   5483           806            
             ParseWasmExports                   6709           568            
-            ParseWasmDataSegmentBytes          0              0              
+            ParseWasmDataSegmentBytes          6              58             
             InstantiateWasmInstructions        43030          70704          
             InstantiateWasmFunctions           59             114            
             InstantiateWasmGlobals             83             53             
             InstantiateWasmTableEntries        3300           1025           
             InstantiateWasmTypes               0              0              
-            InstantiateWasmDataSegments        0              0              
+            InstantiateWasmDataSegments        179            1012           
             InstantiateWasmElemSegments        0              0              
             InstantiateWasmImports             6476           762            
             InstantiateWasmExports             4642           143            
-            InstantiateWasmDataSegmentBytes    0              0              
+            InstantiateWasmDataSegmentBytes    3              28             
             Sec1DecodePointUncompressed        0              0              
             VerifyEcdsaSecp256r1Sig            0              0              
             Bls12381EncodeFp                   0              0              
@@ -635,6 +635,15 @@ fn excessive_logging() -> Result<(), HostError> {
             Bn254FrPow                         0              0              
             Bn254FrInv                         0              0              
             Bn254G1Msm                         0              0              
+            MlDsa44DecodeVerifyingKey          0              0              
+            MlDsa65DecodeVerifyingKey          0              0              
+            MlDsa87DecodeVerifyingKey          0              0              
+            MlDsa44DecodeSignature             0              0              
+            MlDsa65DecodeSignature             0              0              
+            MlDsa87DecodeSignature             0              0              
+            VerifyMlDsa44Sig                   0              0              
+            VerifyMlDsa65Sig                   0              0              
+            VerifyMlDsa87Sig                   0              0              
             =================================================================
 
         "#]]

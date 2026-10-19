@@ -5,7 +5,7 @@ use crate::host_object::MuxedScAddress;
 use crate::storage::{AccessType, Footprint, Storage};
 use crate::xdr::{
     ContractDataDurability, ContractId, LedgerKey, LedgerKeyContractData, MuxedEd25519Account,
-    ScAddress, ScErrorCode, ScErrorType, ScVal, Uint256,
+    ScAddress, ScErrorCode, ScErrorType, ScSymbol, ScVal, Uint256,
 };
 use crate::{Host, HostError, MeteredOrdMap};
 use soroban_env_common::{AddressObject, Env, MuxedAddressObject, Symbol, TryFromVal, TryIntoVal};
@@ -112,7 +112,41 @@ fn storage_fn_name(host: &Host, fn_name: &str, storage: &str) -> Symbol {
     Symbol::try_from_val(host, &format!("{}_{}", fn_name, storage).as_str()).unwrap()
 }
 
+fn get_live_until(host: &Host, key: &Rc<LedgerKey>) -> u32 {
+    host.with_mut_storage(|s| Ok(s.get_with_live_until_ledger(key, host, None)?.1.unwrap()))
+        .unwrap()
+}
+
+fn make_data_key(host: &Host, contract_id: AddressObject, storage: &str) -> Rc<LedgerKey> {
+    let contract_id_hash = host.contract_id_from_address(contract_id).unwrap();
+    let durability = match storage {
+        "persistent" => ContractDataDurability::Persistent,
+        "temporary" => ContractDataDurability::Temporary,
+        _ => panic!("unexpected storage type"),
+    };
+    Rc::new(LedgerKey::ContractData(LedgerKeyContractData {
+        contract: ScAddress::Contract(contract_id_hash),
+        key: ScVal::Symbol(ScSymbol("key_1".try_into().unwrap())),
+        durability,
+    }))
+}
+
+fn live_until_ledger(host: &Host, contract_id: AddressObject, storage: &str) -> u32 {
+    let ledger_key = if storage == "instance" {
+        let contract_id_hash = host.contract_id_from_address(contract_id).unwrap();
+        host.contract_instance_ledger_key(&contract_id_hash)
+            .unwrap()
+    } else {
+        make_data_key(host, contract_id, storage)
+    };
+    get_live_until(host, &ledger_key)
+}
+
 fn test_storage(host: &Host, contract_id: AddressObject, storage: &str) {
+    // Non-zero, so that `ledger_seq + extend_to` can overflow below.
+    host.with_mut_ledger_info(|li| li.sequence_number = 1000)
+        .unwrap();
+
     let key_1 = Symbol::try_from_small_str("key_1").unwrap();
     let key_2 = Symbol::try_from_val(host, &"this_is_key_2").unwrap();
     // Check that the key is not in the storage yet
@@ -193,6 +227,34 @@ fn test_storage(host: &Host, contract_id: AddressObject, storage: &str) {
             extend_args_past_max.into(),
         )
         .unwrap();
+    }
+
+    // A huge `extend_to` saturates and clamps to the max TTL instead of erroring.
+    let extend_args_overflow = if storage == "instance" {
+        test_vec![host, u32::MAX, u32::MAX]
+    } else {
+        test_vec![host, key_1, u32::MAX, u32::MAX]
+    };
+
+    if storage == "temporary" {
+        assert!(host
+            .call(
+                contract_id,
+                storage_fn_name(host, "extend", storage),
+                extend_args_overflow.into(),
+            )
+            .is_err());
+    } else {
+        host.call(
+            contract_id,
+            storage_fn_name(host, "extend", storage),
+            extend_args_overflow.into(),
+        )
+        .unwrap();
+        assert_eq!(
+            live_until_ledger(host, contract_id, storage),
+            max_live_until_ledger
+        );
     }
 
     // Put another key and verify it's there
@@ -423,17 +485,64 @@ fn muxed_address_storage_key_conversion() {
 }
 
 #[test]
-fn test_muxed_account_is_not_allowed_as_storage_key() {
+fn test_cap_84_muxed_contract_storage_key_conversion() {
+    use crate::xdr::MuxedContract;
+    let host = observe_host!(Host::test_host_with_recording_footprint());
+    let muxed_address = MuxedScAddress(ScAddress::MuxedContract(MuxedContract {
+        id: 42,
+        contract_id: ContractId([7; 32].into()),
+    }));
+    let muxed_address_val = host
+        .add_host_object(muxed_address.clone())
+        .unwrap()
+        .to_val();
+    // Conversion for use as a storage key should fail.
+    let res = host.from_host_val_for_storage(muxed_address_val);
+
+    assert!(HostError::result_matches_err(
+        res,
+        (ScErrorType::Storage, ScErrorCode::InvalidInput)
+    ));
+
+    // Conversion to regular ScVal should succeed.
+    let res_non_storage = host.from_host_val(muxed_address_val);
+    assert!(res_non_storage.is_ok());
+}
+
+// Drives an end-to-end contract call for every storage type to assert that
+// `muxed_address` is rejected as a storage key (directly, via `put`/`get`)
+// while still being usable as a stored value. Shared by the muxed account
+// and muxed contract cases, which differ only in the address they feed in.
+fn check_muxed_address_is_not_allowed_as_storage_key(muxed_address: MuxedScAddress) {
     let host = Host::test_host_with_recording_footprint();
     let contract_id = host.register_test_contract_wasm(CONTRACT_STORAGE_WITH_VALS);
-    let muxed_address = MuxedScAddress(ScAddress::MuxedAccount(MuxedEd25519Account {
-        id: 123,
-        ed25519: Uint256([10; 32]),
-    }));
     let muxed_address_val = host.add_host_object(muxed_address.clone()).unwrap();
+    // A muxed address nested inside a container is not allowed as a storage
+    // key either.
+    let nested_key_val: crate::Val = test_vec![&host, muxed_address_val]
+        .try_into_val(&host)
+        .unwrap();
 
     let run_test = |storage: &str| {
-        // Muxed address can't be used as a storage key.
+        // Muxed address can't be used as a storage key, directly or nested.
+        assert!(HostError::result_matches_err(
+            host.call(
+                contract_id,
+                storage_fn_name(&host, "put", storage),
+                test_vec![&host, nested_key_val, 1234_u64].into(),
+            ),
+            (ScErrorType::Storage, ScErrorCode::InvalidInput)
+        ));
+        if storage != "instance" {
+            assert!(HostError::result_matches_err(
+                host.call(
+                    contract_id,
+                    storage_fn_name(&host, "get", storage),
+                    test_vec![&host, nested_key_val].into(),
+                ),
+                (ScErrorType::Storage, ScErrorCode::InvalidInput)
+            ));
+        }
         if storage != "instance" {
             // For instance storage we allow checking for presence of
             // MuxedAddress as ledger key, so there won't be a storage error
@@ -482,6 +591,27 @@ fn test_muxed_account_is_not_allowed_as_storage_key() {
     run_test("persistent");
     run_test("temporary");
     run_test("instance");
+}
+
+#[test]
+fn test_muxed_account_is_not_allowed_as_storage_key() {
+    check_muxed_address_is_not_allowed_as_storage_key(MuxedScAddress(ScAddress::MuxedAccount(
+        MuxedEd25519Account {
+            id: 123,
+            ed25519: Uint256([10; 32]),
+        },
+    )));
+}
+
+#[test]
+fn test_cap_84_muxed_contract_is_not_allowed_as_storage_key() {
+    use crate::xdr::MuxedContract;
+    check_muxed_address_is_not_allowed_as_storage_key(MuxedScAddress(ScAddress::MuxedContract(
+        MuxedContract {
+            id: 123,
+            contract_id: ContractId([10; 32].into()),
+        },
+    )));
 }
 
 #[test]
@@ -572,7 +702,7 @@ fn test_large_instance_key() {
 
 mod ttl_extension_v2_tests {
     use super::*;
-    use crate::xdr::{ContractDataDurability, LedgerKeyContractData, ScSymbol, ScVal};
+    use crate::xdr::{ScSymbol, ScVal};
     use soroban_env_common::{ContractTtlExtension, StorageType};
     use soroban_test_wasms::CONTRACT_STORAGE_P26;
 
@@ -586,25 +716,6 @@ mod ttl_extension_v2_tests {
         })
         .unwrap();
         host
-    }
-
-    fn get_live_until(host: &Host, key: &Rc<LedgerKey>) -> u32 {
-        host.with_mut_storage(|s| Ok(s.get_with_live_until_ledger(key, host, None)?.1.unwrap()))
-            .unwrap()
-    }
-
-    fn make_data_key(host: &Host, contract_id: AddressObject, storage: &str) -> Rc<LedgerKey> {
-        let contract_id_hash = host.contract_id_from_address(contract_id).unwrap();
-        let durability = match storage {
-            "persistent" => ContractDataDurability::Persistent,
-            "temporary" => ContractDataDurability::Temporary,
-            _ => panic!("unexpected storage type"),
-        };
-        Rc::new(LedgerKey::ContractData(LedgerKeyContractData {
-            contract: ScAddress::Contract(contract_id_hash),
-            key: ScVal::Symbol(ScSymbol("key_1".try_into().unwrap())),
-            durability,
-        }))
     }
 
     fn extend_v2_fn_name(host: &Host, storage: &str) -> Symbol {

@@ -129,13 +129,15 @@ struct HostImpl {
     // yet another unmetered PRNG to the host.
     #[cfg(any(test, feature = "testutils"))]
     test_prng: RefCell<Option<ChaCha20Rng>>,
-    // Note: we're not going to charge metering for testutils because it's out of the scope
-    // of what users will be charged for in production -- it's scaffolding for testing a contract,
-    // but shouldn't be charged to the contract itself (and will never be compiled-in to
-    // production hosts)
+    // Container for the 'native' contract executables that executed via an
+    // externally provided compiled-in function set instead of the Wasm VM.
+    // This emulates the the contract lifecycle and storage layout for the most
+    // part, including storing the 'Wasm' code for the native contracts in a
+    // contract code entry. The code is just a short identifier string however,
+    // so do not expect this to approximate e.g. storage costs incurred by the
+    // real Wasm corresponding to the native contract.
     #[cfg(any(test, feature = "testutils"))]
-    contracts:
-        RefCell<std::collections::BTreeMap<crate::xdr::ContractId, Rc<dyn ContractFunctionSet>>>,
+    test_contract_registry: RefCell<lifecycle::TestContractRegistry>,
     // Store a copy of the `AuthorizationManager` for the last host function
     // invocation. In order to emulate the production behavior in tests, we reset
     // authorization manager after every invocation (as it's not meant to be
@@ -285,7 +287,12 @@ impl_checked_borrow_helpers!(
 );
 
 #[cfg(any(test, feature = "testutils"))]
-impl_checked_borrow_helpers!(contracts, std::collections::BTreeMap<crate::xdr::ContractId, Rc<dyn ContractFunctionSet>>, try_borrow_contracts, try_borrow_contracts_mut);
+impl_checked_borrow_helpers!(
+    test_contract_registry,
+    lifecycle::TestContractRegistry,
+    try_borrow_test_contract_registry,
+    try_borrow_test_contract_registry_mut
+);
 
 #[cfg(any(test, feature = "testutils"))]
 impl_checked_borrow_helpers!(
@@ -380,7 +387,7 @@ impl Host {
             #[cfg(any(test, feature = "testutils"))]
             test_prng: RefCell::new(None),
             #[cfg(any(test, feature = "testutils"))]
-            contracts: Default::default(),
+            test_contract_registry: Default::default(),
             #[cfg(any(test, feature = "testutils"))]
             previous_authorization_manager: RefCell::new(None),
             trace_hook: RefCell::new(None),
@@ -1183,37 +1190,37 @@ impl VmCallerEnv for Host {
 
     // Metered: covered by `visit`.
     fn obj_cmp(&self, _vmcaller: &mut VmCaller<Host>, a: Val, b: Val) -> Result<i64, HostError> {
-        let res = match {
-            match (Object::try_from(a), Object::try_from(b)) {
-                // We were given two objects: compare them.
-                (Ok(a), Ok(b)) => self.visit_obj_untyped(a, |ao| {
-                    // They might each be None but that's ok, None compares less than Some.
-                    self.visit_obj_untyped(b, |bo| Ok(Some(self.compare(&ao, &bo)?)))
-                })?,
+        let partial_res = match (Object::try_from(a), Object::try_from(b)) {
+            // We were given two objects: compare them.
+            (Ok(a), Ok(b)) => self.visit_obj_untyped(a, |ao| {
+                // They might each be None but that's ok, None compares less than Some.
+                self.visit_obj_untyped(b, |bo| Ok(Some(self.compare(&ao, &bo)?)))
+            })?,
 
-                // We were given an object and a non-object: try a small-value comparison.
-                (Ok(a), Err(_)) => self
-                    .visit_obj_untyped(a, |aobj| aobj.try_compare_to_small(self.as_budget(), b))?,
-                // Same as previous case, but reversing the resulting order.
-                (Err(_), Ok(b)) => self.visit_obj_untyped(b, |bobj| {
-                    let ord = bobj.try_compare_to_small(self.as_budget(), a)?;
-                    Ok(match ord {
-                        Some(Ordering::Less) => Some(Ordering::Greater),
-                        Some(Ordering::Greater) => Some(Ordering::Less),
-                        other => other,
-                    })
-                })?,
-                // We should have been given at least one object.
-                (Err(_), Err(_)) => {
-                    return Err(self.err(
-                        ScErrorType::Value,
-                        ScErrorCode::UnexpectedType,
-                        "two non-object args to obj_cmp",
-                        &[a, b],
-                    ));
-                }
+            // We were given an object and a non-object: try a small-value comparison.
+            (Ok(a), Err(_)) => {
+                self.visit_obj_untyped(a, |aobj| aobj.try_compare_to_small(self.as_budget(), b))?
             }
-        } {
+            // Same as previous case, but reversing the resulting order.
+            (Err(_), Ok(b)) => self.visit_obj_untyped(b, |bobj| {
+                let ord = bobj.try_compare_to_small(self.as_budget(), a)?;
+                Ok(match ord {
+                    Some(Ordering::Less) => Some(Ordering::Greater),
+                    Some(Ordering::Greater) => Some(Ordering::Less),
+                    other => other,
+                })
+            })?,
+            // We should have been given at least one object.
+            (Err(_), Err(_)) => {
+                return Err(self.err(
+                    ScErrorType::Value,
+                    ScErrorCode::UnexpectedType,
+                    "two non-object args to obj_cmp",
+                    &[a, b],
+                ));
+            }
+        };
+        let res = match partial_res {
             // If any of the above got us a result, great, use it.
             Some(res) => res,
 
@@ -3485,6 +3492,48 @@ impl VmCallerEnv for Host {
         }
     }
 
+    fn verify_sig_ml_dsa_44(
+        &self,
+        _vmcaller: &mut VmCaller<Host>,
+        public_key: BytesObject,
+        msg: BytesObject,
+        signature: BytesObject,
+        context: BytesObject,
+    ) -> Result<Void, HostError> {
+        self.ml_dsa_verify_sig_with_context::<ml_dsa::MlDsa44>(
+            public_key, msg, signature, context,
+        )?;
+        Ok(().into())
+    }
+
+    fn verify_sig_ml_dsa_65(
+        &self,
+        _vmcaller: &mut VmCaller<Host>,
+        public_key: BytesObject,
+        msg: BytesObject,
+        signature: BytesObject,
+        context: BytesObject,
+    ) -> Result<Void, HostError> {
+        self.ml_dsa_verify_sig_with_context::<ml_dsa::MlDsa65>(
+            public_key, msg, signature, context,
+        )?;
+        Ok(().into())
+    }
+
+    fn verify_sig_ml_dsa_87(
+        &self,
+        _vmcaller: &mut VmCaller<Host>,
+        public_key: BytesObject,
+        msg: BytesObject,
+        signature: BytesObject,
+        context: BytesObject,
+    ) -> Result<Void, HostError> {
+        self.ml_dsa_verify_sig_with_context::<ml_dsa::MlDsa87>(
+            public_key, msg, signature, context,
+        )?;
+        Ok(().into())
+    }
+
     // endregion: "crypto" module functions
     // region: "test" module functions
 
@@ -3630,7 +3679,7 @@ impl VmCallerEnv for Host {
     ) -> Result<Val, Self::Error> {
         let sc_addr = self.strkey_to_scaddress(strkey_obj, true)?;
         match &sc_addr {
-            ScAddress::MuxedAccount(_) => {
+            ScAddress::MuxedAccount(_) | ScAddress::MuxedContract(_) => {
                 Ok(self.add_host_object(MuxedScAddress(sc_addr))?.to_val())
             }
             _ => Ok(self.add_host_object(sc_addr)?.to_val()),
@@ -3649,6 +3698,9 @@ impl VmCallerEnv for Host {
                 )));
                 Ok(address)
             }
+            ScAddress::MuxedContract(muxed_contract) => Ok(ScAddress::Contract(
+                muxed_contract.contract_id.metered_clone(self)?,
+            )),
             _ => Err(self.err(
                 ScErrorType::Object,
                 ScErrorCode::InternalError,
@@ -3666,6 +3718,7 @@ impl VmCallerEnv for Host {
     ) -> Result<U64Val, Self::Error> {
         let mux_id = self.visit_obj(muxed_address, |addr: &MuxedScAddress| match &addr.0 {
             ScAddress::MuxedAccount(muxed_account) => Ok(muxed_account.id),
+            ScAddress::MuxedContract(muxed_contract) => Ok(muxed_contract.id),
             _ => Err(self.err(
                 ScErrorType::Object,
                 ScErrorCode::InternalError,
